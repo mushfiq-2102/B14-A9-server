@@ -405,3 +405,65 @@ app.delete('/favorites/:equipmentId', verifyToken, verifyRenter, async (req, res
     res.send(result);
 })
 
+// bookings related apis
+const DAY = 24 * 60 * 60 * 1000;
+const UNIT_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+
+// total = rental units (days / weeks / months, rounded up) x price x quantity
+const calculateRental = (item, startDate, endDate, quantity) => {
+    const days = Math.floor((new Date(endDate) - new Date(startDate)) / DAY) + 1;
+    const units = Math.ceil(days / UNIT_DAYS[item.rentalType]);
+    return { days, units, totalAmount: units * item.rentalPrice * quantity };
+};
+
+// quantity still free for the requested dates (confirmed bookings that overlap are subtracted)
+const getRemainingQuantity = async (item, startDate, endDate) => {
+    const overlapping = await bookings.find({
+        equipmentId: item._id.toString(),
+        bookingStatus: 'confirmed',
+        startDate: { $lte: endDate },
+        endDate: { $gte: startDate },
+    }).toArray();
+    const booked = overlapping.reduce((sum, booking) => sum + booking.quantity, 0);
+    return item.availableQuantity - booked;
+};
+
+// validates the booking request and returns the equipment with the calculated amounts
+const buildQuote = async ({ equipmentId, startDate, endDate, quantity }) => {
+    const id = toObjectId(equipmentId);
+    const item = id && await equipment.findOne({ _id: id, status: 'approved' });
+    if (!item) {
+        return { error: 'Equipment not found', status: 404 };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const validDates = !isNaN(new Date(startDate)) && !isNaN(new Date(endDate)) && startDate >= today && endDate >= startDate;
+    if (!validDates) {
+        return { error: 'Please select valid rental dates', status: 400 };
+    }
+    if (!Number.isInteger(quantity) || quantity < 1) {
+        return { error: 'Please enter a valid quantity', status: 400 };
+    }
+    const remaining = await getRemainingQuantity(item, startDate, endDate);
+    const rental = calculateRental(item, startDate, endDate, quantity);
+    return { item, remaining, available: quantity <= remaining, ...rental };
+};
+
+app.get('/bookings/quote', verifyToken, verifyRenter, async (req, res) => {
+    const { equipmentId, startDate, endDate } = req.query;
+    const quote = await buildQuote({ equipmentId, startDate, endDate, quantity: Number(req.query.quantity) });
+    if (quote.error) {
+        return res.status(quote.status).send({ message: quote.error });
+    }
+    const { item, remaining, available, days, units, totalAmount } = quote;
+    res.send({
+        available,
+        remaining,
+        days,
+        units,
+        totalAmount,
+        equipmentName: item.name,
+        rentalType: item.rentalType,
+        rentalPrice: item.rentalPrice,
+    });
+})
+
