@@ -467,3 +467,97 @@ app.get('/bookings/quote', verifyToken, verifyRenter, async (req, res) => {
     });
 })
 
+// payments related apis
+app.post('/payments/checkout-verify', verifyToken, verifyRenter, async (req, res) => {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.send({ success: false, message: 'Session ID is required' });
+    }
+
+    const {
+        status,
+        payment_status,
+        customer_email,
+        metadata,
+        payment_intent,
+        amount_total,
+        currency,
+    } = await stripe.checkout.sessions.retrieve(sessionId);
+
+    // the checkout session must belong to the currently logged in customer
+    if (metadata.userId !== req.user._id.toString()) {
+        return res.status(403).send({ message: 'Forbidden' });
+    }
+
+    if (status === 'complete' && payment_status === 'paid') {
+
+        const sessionQuery = { sessionId };
+        const existingPayment = await payments.findOne(sessionQuery);
+        if (existingPayment) {
+            return res.send({ success: false, message: 'Payment already verified' });
+        }
+
+        const id = toObjectId(metadata.equipmentId);
+        const item = id && await equipment.findOne({ _id: id });
+        if (!item) {
+            return res.send({ success: false, message: 'Equipment not found' });
+        }
+
+        const payment = {
+            sessionId,
+            status,
+            payment_status,
+            customer_email,
+            userId: metadata.userId,
+            ownerId: item.ownerId,
+            equipmentId: metadata.equipmentId,
+            transactionId: payment_intent,
+            amount: amount_total / 100,
+            currency,
+            payment_date: new Date(),
+        }
+
+        let result;
+        try {
+            result = await payments.insertOne(payment);
+        } catch (err) {
+            // the unique sessionId index rejected a duplicate verification
+            return res.send({ success: false, message: 'Payment already verified' });
+        }
+
+        // create the booking record only after a successful payment
+        const booking = {
+            equipmentId: metadata.equipmentId,
+            equipmentName: item.name,
+            equipmentImage: item.image,
+            customerId: metadata.userId,
+            customerName: req.user.name,
+            customerEmail: req.user.email,
+            ownerId: item.ownerId,
+            ownerName: item.ownerName,
+            ownerEmail: item.ownerEmail,
+            startDate: metadata.startDate,
+            endDate: metadata.endDate,
+            quantity: Number(metadata.quantity),
+            contactNumber: metadata.contactNumber,
+            deliveryAddress: metadata.deliveryAddress,
+            notes: metadata.notes,
+            totalAmount: amount_total / 100,
+            bookingDate: new Date(),
+            paymentStatus: 'paid',
+            bookingStatus: 'confirmed',
+            transactionId: payment_intent,
+        };
+        const bookingResult = await bookings.insertOne(booking);
+        await payments.updateOne(
+            { _id: result.insertedId },
+            { $set: { bookingId: bookingResult.insertedId.toString() } }
+        );
+
+        res.send({ success: true, result, bookingResult });
+        return
+    }
+    res.send({ success: false, message: 'Payment verification failed' });
+})
+
