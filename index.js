@@ -601,3 +601,66 @@ app.patch('/bookings/:id/status', verifyToken, verifyOwnerOrAdmin, async (req, r
     res.send(result);
 })
 
+// analytics related apis
+const sumAmount = async (match) => {
+    const result = await payments.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]).toArray();
+    return result[0]?.total || 0;
+};
+
+app.get('/analytics/admin', verifyToken, verifyAdmin, async (req, res) => {
+    const [totalUsers, totalEquipment, totalBookings, pendingApprovals, completedRentals, totalRevenue] =
+        await Promise.all([
+            users.countDocuments({}),
+            equipment.countDocuments({}),
+            bookings.countDocuments({}),
+            equipment.countDocuments({ status: 'pending' }),
+            bookings.countDocuments({ bookingStatus: 'completed' }),
+            sumAmount({}),
+        ]);
+
+    const monthly = await bookings.aggregate([
+        { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$bookingDate' } }, bookings: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+    ]).toArray();
+
+    res.send({
+        totalUsers,
+        totalEquipment,
+        totalBookings,
+        pendingApprovals,
+        completedRentals,
+        totalRevenue,
+        monthlyBookings: monthly.map((item) => ({ month: item._id, bookings: item.bookings })),
+    });
+})
+
+app.get('/analytics/owner', verifyToken, verifyOwner, async (req, res) => {
+    const ownerId = req.user._id.toString();
+    const [totalEquipment, completedRentals, totalEarnings] = await Promise.all([
+        equipment.countDocuments({ ownerId }),
+        bookings.countDocuments({ ownerId, bookingStatus: 'completed' }),
+        sumAmount({ ownerId }),
+    ]);
+
+    const monthly = await payments.aggregate([
+        { $match: { ownerId } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$payment_date' } }, earnings: { $sum: '$amount' } } },
+        { $sort: { _id: 1 } },
+    ]).toArray();
+
+    res.send({
+        totalEquipment,
+        completedRentals,
+        totalEarnings,
+        monthlyEarnings: monthly.map((item) => ({ month: item._id, earnings: item.earnings })),
+    });
+})
+
+app.listen(port, () => {
+    console.log(`rent rig is running on port ${port}`)
+})
+
+export default app;
