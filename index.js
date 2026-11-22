@@ -252,3 +252,62 @@ app.get('/equipment/all', verifyToken, verifyAdmin, async (req, res) => {
     res.send(result);
 })
 
+// keep only the fields a client is allowed to send
+const pickEquipmentFields = (body) => ({
+    name: body.name,
+    description: body.description,
+    category: body.category,
+    location: body.location,
+    rentalPrice: Number(body.rentalPrice),
+    rentalType: body.rentalType,
+    availableQuantity: Number(body.availableQuantity),
+    condition: body.condition,
+    brand: body.brand,
+    model: body.model,
+    image: body.image,
+    rentalTerms: body.rentalTerms,
+});
+
+const isValidEquipment = (data) =>
+    data.name &&
+    CATEGORIES.includes(data.category) &&
+    RENTAL_TYPES.includes(data.rentalType) &&
+    data.rentalPrice > 0 &&
+    Number.isInteger(data.availableQuantity) &&
+    data.availableQuantity >= 0;
+
+app.get('/equipment/:id', verifyToken, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    const result = await equipment.findOne({ _id: id });
+    if (!result) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    // only approved equipment is visible, except to its owner and admins
+    const isManager = req.user.role === 'admin' || result.ownerId === req.user._id.toString();
+    if (result.status !== 'approved' && !isManager) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    res.send(result);
+})
+
+app.post('/equipment', verifyToken, verifyOwner, async (req, res) => {
+    const data = pickEquipmentFields(req.body);
+    if (!isValidEquipment(data)) {
+        return res.status(400).send({ message: 'Invalid equipment data' });
+    }
+    const item = {
+        ...data,
+        status: 'pending',
+        ownerId: req.user._id.toString(),
+        ownerName: req.user.name,
+        ownerEmail: req.user.email,
+        ownerPhone: req.user.phone || '',
+        createdAt: new Date(),
+    };
+    const result = await equipment.insertOne(item);
+    res.send(result);
+})
+
