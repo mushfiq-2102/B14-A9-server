@@ -365,3 +365,43 @@ app.delete('/equipment/:id', verifyToken, verifyOwnerOrAdmin, async (req, res) =
     res.send(result);
 })
 
+// favorites related apis
+app.get('/favorites', verifyToken, verifyRenter, async (req, res) => {
+    const query = { userId: req.user._id.toString() };
+    const result = await favorites.find(query).sort({ createdAt: -1 }).toArray();
+    res.send(result);
+})
+
+app.post('/favorites', verifyToken, verifyRenter, async (req, res) => {
+    const userId = req.user._id.toString();
+    const id = toObjectId(req.body.equipmentId);
+    const item = id && await equipment.findOne({ _id: id, status: 'approved' });
+    if (!item) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    const existing = await favorites.findOne({ userId, equipmentId: req.body.equipmentId });
+    if (existing) {
+        return res.send({ message: 'Already in favorites' });
+    }
+    // snapshot of the equipment so the favorites table needs no joins
+    const favorite = {
+        userId,
+        equipmentId: req.body.equipmentId,
+        name: item.name,
+        image: item.image,
+        category: item.category,
+        rentalPrice: item.rentalPrice,
+        rentalType: item.rentalType,
+        location: item.location,
+        createdAt: new Date(),
+    };
+    const result = await favorites.insertOne(favorite);
+    res.send(result);
+})
+
+app.delete('/favorites/:equipmentId', verifyToken, verifyRenter, async (req, res) => {
+    const query = { userId: req.user._id.toString(), equipmentId: req.params.equipmentId };
+    const result = await favorites.deleteOne(query);
+    res.send(result);
+})
+
