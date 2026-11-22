@@ -97,3 +97,36 @@ const verifyToken = async (req, res, next) => {
     next();
 }
 
+// must call these middlewares after verifyToken
+const verifyRenter = async (req, res, next) => {
+    if (req.user.role !== 'customer') {
+        res.status(403).send({ message: 'Forbidden' });
+        return;
+    }
+    next();
+}
+
+const verifyOwner = async (req, res, next) => {
+    if (req.user.role !== 'owner') {
+        res.status(403).send({ message: 'Forbidden' });
+        return;
+    }
+    next();
+}
+
+const verifyAdmin = async (req, res, next) => {
+    if (req.user.role !== 'admin') {
+        res.status(403).send({ message: 'Forbidden' });
+        return;
+    }
+    next();
+}
+
+const verifyOwnerOrAdmin = async (req, res, next) => {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+        res.status(403).send({ message: 'Forbidden' });
+        return;
+    }
+    next();
+}
+
