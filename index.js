@@ -245,6 +245,16 @@ app.get('/equipment', async (req, res) => {
     }
 
     const sort = SORT_OPTIONS[req.query.sort] || SORT_OPTIONS.recent;
+
+    // pagination: with ?page the response also carries the total, otherwise it is a plain array
+    if (req.query.page) {
+        const limit = Math.max(1, Number(req.query.limit) || 9);
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const total = await equipment.countDocuments(query);
+        const items = await equipment.find(query).sort(sort).skip((page - 1) * limit).limit(limit).toArray();
+        return res.send({ items, total, page, limit });
+    }
+
     let cursor = equipment.find(query).sort(sort);
     if (req.query.limit) {
         cursor = cursor.limit(Number(req.query.limit));
@@ -578,6 +588,16 @@ app.post('/payments/checkout-verify', verifyToken, verifyRenter, async (req, res
 // bookings list and status apis
 app.get('/bookings', verifyToken, verifyRenter, async (req, res) => {
     const query = { customerId: req.user._id.toString() };
+
+    // booking history pagination
+    if (req.query.page) {
+        const limit = Math.max(1, Number(req.query.limit) || 10);
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const total = await bookings.countDocuments(query);
+        const items = await bookings.find(query).sort({ bookingDate: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+        return res.send({ items, total, page, limit });
+    }
+
     const result = await bookings.find(query).sort({ bookingDate: -1 }).toArray();
     res.send(result);
 })
