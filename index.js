@@ -3,6 +3,7 @@ import cors from 'cors';
 import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import Stripe from 'stripe';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -29,9 +30,8 @@ export async function connectToMongoDB() {
 
 const connectedClient = await connectToMongoDB();
 const database = connectedClient.db("rentrigdb");
-// `user` and `session` are the collections managed by Better Auth on the client
+// `user` is the collection managed by Better Auth on the client
 const users = database.collection("user");
-const sessions = database.collection("session");
 const equipment = database.collection("equipment");
 const favorites = database.collection("favorites");
 const bookings = database.collection("bookings");
@@ -61,6 +61,14 @@ const EQUIPMENT_STATUSES = ['pending', 'approved', 'rejected'];
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled'];
 const USER_ROLES = ['customer', 'owner', 'admin'];
 
+// Access tokens are JWTs signed by Better Auth on the client app.
+// The public keys come from the client's JWKS endpoint, so the server never needs the signing secret.
+let jwks;
+const getJwks = () => {
+    jwks ||= createRemoteJWKSet(new URL(`${new URL(process.env.CLIENT_URL).origin}/api/auth/jwks`));
+    return jwks;
+}
+
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
@@ -73,17 +81,23 @@ const verifyToken = async (req, res, next) => {
         return;
     }
 
-    const query = { token };
-    const session = await sessions.findOne(query);
-    if (!session || new Date(session.expiresAt) < new Date()) {
+    let payload;
+    try {
+        // checks the signature, the expiry time and the issuer
+        ({ payload } = await jwtVerify(token, getJwks(), { issuer: new URL(process.env.CLIENT_URL).origin }));
+    } catch (err) {
         res.status(401).send({ message: 'Unauthorized' });
         return;
     }
 
-    const userId = session.userId;
+    const userId = toObjectId(payload.sub);
+    if (!userId) {
+        res.status(401).send({ message: 'Unauthorized' });
+        return;
+    }
 
-    const userQuery = { _id: new ObjectId(userId) };
-    const user = await users.findOne(userQuery);
+    // the role always comes from the database, never from the token
+    const user = await users.findOne({ _id: userId });
     if (!user) {
         res.status(401).send({ message: 'Unauthorized' });
         return;
