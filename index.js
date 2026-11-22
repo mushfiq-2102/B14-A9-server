@@ -311,3 +311,57 @@ app.post('/equipment', verifyToken, verifyOwner, async (req, res) => {
     res.send(result);
 })
 
+app.patch('/equipment/:id', verifyToken, verifyOwnerOrAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    const data = pickEquipmentFields(req.body);
+    if (!id || !isValidEquipment(data)) {
+        return res.status(400).send({ message: 'Invalid equipment data' });
+    }
+    const query = { _id: id };
+    const item = await equipment.findOne(query);
+    if (!item) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    if (req.user.role !== 'admin' && item.ownerId !== req.user._id.toString()) {
+        return res.status(403).send({ message: 'Forbidden' });
+    }
+    const updatedDoc = {
+        $set: { ...data, updatedAt: new Date() }
+    }
+    const result = await equipment.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
+app.patch('/equipment/:id/status', verifyToken, verifyAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id || !EQUIPMENT_STATUSES.includes(req.body.status)) {
+        return res.status(400).send({ message: 'Invalid request' });
+    }
+    const query = { _id: id };
+    const updatedDoc = {
+        $set: {
+            status: req.body.status,
+        }
+    }
+    const result = await equipment.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
+app.delete('/equipment/:id', verifyToken, verifyOwnerOrAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id) {
+        return res.status(400).send({ message: 'Invalid request' });
+    }
+    const query = { _id: id };
+    const item = await equipment.findOne(query);
+    if (!item) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    if (req.user.role !== 'admin' && item.ownerId !== req.user._id.toString()) {
+        return res.status(403).send({ message: 'Forbidden' });
+    }
+    const result = await equipment.deleteOne(query);
+    await favorites.deleteMany({ equipmentId: req.params.id });
+    res.send(result);
+})
+
