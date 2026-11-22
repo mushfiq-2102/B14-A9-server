@@ -3,7 +3,7 @@
 REST API for **RentRig**, an equipment rental platform where owners list equipment, customers book and pay for rentals, and admins manage the marketplace.
 
 - **Live URL:** https://your-server.vercel.app
-- **Client repository:** https://github.com/your-username/equipment-rental-client
+- **Client repository:** https://github.com/mushfiq-2102/B14-A9-client
 
 ## Key features
 
