@@ -61,3 +61,39 @@ const EQUIPMENT_STATUSES = ['pending', 'approved', 'rejected'];
 const BOOKING_STATUSES = ['confirmed', 'completed', 'cancelled'];
 const USER_ROLES = ['customer', 'owner', 'admin'];
 
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        res.status(401).send({ message: 'Unauthorized' });
+        return;
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+        res.status(401).send({ message: 'Unauthorized' });
+        return;
+    }
+
+    const query = { token };
+    const session = await sessions.findOne(query);
+    if (!session || new Date(session.expiresAt) < new Date()) {
+        res.status(401).send({ message: 'Unauthorized' });
+        return;
+    }
+
+    const userId = session.userId;
+
+    const userQuery = { _id: new ObjectId(userId) };
+    const user = await users.findOne(userQuery);
+    if (!user) {
+        res.status(401).send({ message: 'Unauthorized' });
+        return;
+    }
+    if (user.banned) {
+        res.status(403).send({ message: 'Account suspended' });
+        return;
+    }
+
+    req.user = user;
+    next();
+}
+
