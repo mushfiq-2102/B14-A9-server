@@ -561,3 +561,43 @@ app.post('/payments/checkout-verify', verifyToken, verifyRenter, async (req, res
     res.send({ success: false, message: 'Payment verification failed' });
 })
 
+// bookings list and status apis
+app.get('/bookings', verifyToken, verifyRenter, async (req, res) => {
+    const query = { customerId: req.user._id.toString() };
+    const result = await bookings.find(query).sort({ bookingDate: -1 }).toArray();
+    res.send(result);
+})
+
+app.get('/bookings/owner', verifyToken, verifyOwner, async (req, res) => {
+    const query = { ownerId: req.user._id.toString() };
+    const result = await bookings.find(query).sort({ bookingDate: -1 }).toArray();
+    res.send(result);
+})
+
+app.get('/bookings/all', verifyToken, verifyAdmin, async (req, res) => {
+    const result = await bookings.find({}).sort({ bookingDate: -1 }).toArray();
+    res.send(result);
+})
+
+app.patch('/bookings/:id/status', verifyToken, verifyOwnerOrAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id || !BOOKING_STATUSES.includes(req.body.status)) {
+        return res.status(400).send({ message: 'Invalid request' });
+    }
+    const query = { _id: id };
+    const booking = await bookings.findOne(query);
+    if (!booking) {
+        return res.status(404).send({ message: 'Not found' });
+    }
+    if (req.user.role !== 'admin' && booking.ownerId !== req.user._id.toString()) {
+        return res.status(403).send({ message: 'Forbidden' });
+    }
+    const updatedDoc = {
+        $set: {
+            bookingStatus: req.body.status,
+        }
+    }
+    const result = await bookings.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
