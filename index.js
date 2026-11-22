@@ -16,9 +16,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors());
 
-const client = new MongoClient(
-    `mongodb+srv://${process.env.DB_USER}:${encodeURIComponent(process.env.DB_PASSWORD)}@${process.env.DB_CLUSTER}/`
-);
+const client = new MongoClient(process.env.MONGODB_URI);
 
 export async function connectToMongoDB() {
     try {
