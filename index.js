@@ -4,6 +4,7 @@ import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import Stripe from 'stripe';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import nodemailer from 'nodemailer';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -585,6 +586,44 @@ app.post('/payments/checkout-verify', verifyToken, verifyRenter, async (req, res
     res.send({ success: false, message: 'Payment verification failed' });
 })
 
+// email notifications (set the SMTP_* variables to turn them on, otherwise emails are skipped)
+const mailer = process.env.SMTP_HOST
+    ? nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 465,
+        secure: (Number(process.env.SMTP_PORT) || 465) === 465,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    })
+    : null;
+
+// tells the renter and the equipment owner that a booking is completed
+const sendBookingCompletedEmails = async (booking) => {
+    if (!mailer) {
+        return;
+    }
+    const from = process.env.MAIL_FROM || process.env.SMTP_USER;
+    const details = `${booking.equipmentName} (${booking.startDate} to ${booking.endDate}), quantity ${booking.quantity}, total $${booking.totalAmount}`;
+    try {
+        await Promise.all([
+            mailer.sendMail({
+                from,
+                to: booking.customerEmail,
+                subject: `Your rental is completed: ${booking.equipmentName}`,
+                text: `Hi ${booking.customerName},\n\nYour rental is completed.\n${details}\n\nThank you for renting with RentRig.`,
+            }),
+            mailer.sendMail({
+                from,
+                to: booking.ownerEmail,
+                subject: `Rental completed: ${booking.equipmentName}`,
+                text: `Hi ${booking.ownerName},\n\nA rental of your equipment is completed.\nCustomer: ${booking.customerName} (${booking.customerEmail})\n${details}\n\nRentRig`,
+            }),
+        ]);
+    } catch (err) {
+        // a mail problem must never break the booking update
+        console.error('Email notification failed:', err.message);
+    }
+};
+
 // bookings list and status apis
 app.get('/bookings', verifyToken, verifyRenter, async (req, res) => {
     const query = { customerId: req.user._id.toString() };
@@ -632,6 +671,9 @@ app.patch('/bookings/:id/status', verifyToken, verifyOwnerOrAdmin, async (req, r
         }
     }
     const result = await bookings.updateOne(query, updatedDoc);
+    if (req.body.status === 'completed' && booking.bookingStatus !== 'completed') {
+        await sendBookingCompletedEmails(booking);
+    }
     res.send(result);
 })
 
