@@ -189,3 +189,66 @@ app.patch('/profile', verifyToken, async (req, res) => {
     res.send(result);
 })
 
+// equipment related apis
+const SORT_OPTIONS = {
+    recent: { createdAt: -1 },
+    'price-asc': { rentalPrice: 1 },
+    'price-desc': { rentalPrice: -1 },
+};
+
+// public: approved equipment with server side search, filter and sort
+app.get('/equipment', async (req, res) => {
+    const query = { status: 'approved' };
+
+    if (req.query.category) {
+        query.category = req.query.category;
+    }
+    if (req.query.rentalType) {
+        query.rentalType = req.query.rentalType;
+    }
+    if (req.query.availability === 'available') {
+        query.availableQuantity = { $gt: 0 };
+    }
+    if (req.query.availability === 'unavailable') {
+        query.availableQuantity = { $lte: 0 };
+    }
+    if (req.query.minPrice || req.query.maxPrice) {
+        query.rentalPrice = {};
+        if (req.query.minPrice) {
+            query.rentalPrice.$gte = Number(req.query.minPrice);
+        }
+        if (req.query.maxPrice) {
+            query.rentalPrice.$lte = Number(req.query.maxPrice);
+        }
+    }
+    if (req.query.search) {
+        const pattern = escapeRegex(req.query.search);
+        query.$or = [
+            { name: { $regex: pattern, $options: 'i' } },
+            { location: { $regex: pattern, $options: 'i' } },
+            { category: { $regex: pattern, $options: 'i' } },
+        ];
+    }
+
+    const sort = SORT_OPTIONS[req.query.sort] || SORT_OPTIONS.recent;
+    let cursor = equipment.find(query).sort(sort);
+    if (req.query.limit) {
+        cursor = cursor.limit(Number(req.query.limit));
+    }
+    const result = await cursor.toArray();
+    res.send(result);
+})
+
+// owner: only the logged in owner's equipment
+app.get('/equipment/owner', verifyToken, verifyOwner, async (req, res) => {
+    const query = { ownerId: req.user._id.toString() };
+    const result = await equipment.find(query).sort({ createdAt: -1 }).toArray();
+    res.send(result);
+})
+
+// admin: every equipment in any status
+app.get('/equipment/all', verifyToken, verifyAdmin, async (req, res) => {
+    const result = await equipment.find({}).sort({ createdAt: -1 }).toArray();
+    res.send(result);
+})
+
