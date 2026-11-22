@@ -666,13 +666,14 @@ app.patch('/bookings/:id/status', verifyToken, verifyOwnerOrAdmin, async (req, r
     if (req.user.role !== 'admin' && booking.ownerId !== req.user._id.toString()) {
         return res.status(403).send({ message: 'Forbidden' });
     }
+    const previousStatus = booking.bookingStatus;
     const updatedDoc = {
         $set: {
             bookingStatus: req.body.status,
         }
     }
     const result = await bookings.updateOne(query, updatedDoc);
-    if (req.body.status === 'completed' && booking.bookingStatus !== 'completed') {
+    if (req.body.status === 'completed' && previousStatus !== 'completed') {
         await sendBookingCompletedEmails(booking);
     }
     res.send(result);
