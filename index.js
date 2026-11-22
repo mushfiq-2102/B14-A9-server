@@ -130,3 +130,62 @@ const verifyOwnerOrAdmin = async (req, res, next) => {
     next();
 }
 
+// users related apis
+app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
+    const cursor = users.find({}).sort({ createdAt: -1 });
+    const result = await cursor.toArray();
+    res.send(result);
+})
+
+app.patch('/users/:id/role', verifyToken, verifyAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id || !USER_ROLES.includes(req.body.role)) {
+        return res.status(400).send({ message: 'Invalid request' });
+    }
+    const query = { _id: id };
+    const updatedDoc = {
+        $set: {
+            role: req.body.role,
+        }
+    }
+    const result = await users.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
+app.patch('/users/:id/status', verifyToken, verifyAdmin, async (req, res) => {
+    const id = toObjectId(req.params.id);
+    if (!id) {
+        return res.status(400).send({ message: 'Invalid request' });
+    }
+    const query = { _id: id };
+    const updatedDoc = {
+        $set: {
+            banned: Boolean(req.body.banned),
+        }
+    }
+    const result = await users.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
+// profile apis (every logged in user)
+app.get('/profile', verifyToken, async (req, res) => {
+    const { _id, name, email, image, role, phone, address, createdAt } = req.user;
+    res.send({ _id, name, email, image, role, phone, address, createdAt });
+})
+
+app.patch('/profile', verifyToken, async (req, res) => {
+    const { name, image, phone, address } = req.body;
+    const query = { _id: req.user._id };
+    const updatedDoc = {
+        $set: {
+            name,
+            image,
+            phone,
+            address,
+            updatedAt: new Date(),
+        }
+    }
+    const result = await users.updateOne(query, updatedDoc);
+    res.send(result);
+})
+
