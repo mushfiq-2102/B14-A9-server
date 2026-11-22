@@ -5,6 +5,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import Stripe from 'stripe';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import nodemailer from 'nodemailer';
+import cron from 'node-cron';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -733,6 +734,34 @@ app.get('/analytics/owner', verifyToken, verifyOwner, async (req, res) => {
         totalEarnings,
         monthlyEarnings: monthly.map((item) => ({ month: item._id, earnings: item.earnings })),
     });
+})
+
+// cron job: bookings whose rental end date has passed become completed
+const completeExpiredBookings = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const expired = await bookings.find({ bookingStatus: 'confirmed', endDate: { $lt: today } }).toArray();
+    for (const booking of expired) {
+        await bookings.updateOne({ _id: booking._id }, { $set: { bookingStatus: 'completed' } });
+        await sendBookingCompletedEmails(booking);
+    }
+    return expired.length;
+};
+
+// node-cron runs every day at midnight when the server stays on (local / VPS)
+if (!process.env.VERCEL) {
+    cron.schedule('0 0 * * *', async () => {
+        const count = await completeExpiredBookings();
+        console.log(`Cron job: ${count} booking(s) completed`);
+    });
+}
+
+// Vercel serverless cannot keep node-cron alive, so Vercel Cron calls this endpoint (see vercel.json)
+app.get('/cron/complete-bookings', async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).send({ message: 'Unauthorized' });
+    }
+    const completed = await completeExpiredBookings();
+    res.send({ completed });
 })
 
 app.listen(port, () => {
